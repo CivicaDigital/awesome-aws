@@ -1,89 +1,21 @@
-# Scheduling AWS EC2 instances for shutdown and startup
-Running AWS EC2 instances around the clock can be cost-draining, so these two scripts have been used with CloudWatch to schedule a timed
-startup and shutdown of all EC2 instances assigned to a particular project.
+# Scheduling AWS Resources for shutdown and startup
+Running AWS resources around the clock can be cost-draining, so these scripts have been created to start and stop resources with the use of tags by utilising Lambda functions triggered by CloudWatch rules
 
-The scripts run in AWS's own version of Python and are shown below:
+The scripts are written in Python 3 using the AWS SDK boto3 and can be found in management/scripts.
 
-* StartEC2Instances.py
-```
-import boto3
-# Enter the region your instances are in. Include only the region without specifying Availability Zone; e.g.; 'us-east-1'
-region = 'eu-west-2'
+The project consists of:
+  - aws_resource_finders.py - The script with the logic in for finding resources by a tag and starting/stopping them.
+  - start_resources_example.py - An example script for use in a Start Resources Lambda function.
+  - stop_resources_example.py - An example script for use in a Start Resources Lambda function.
 
-def lambda_handler(event, context):
+Recommended Use:
 
-	def get_tag_value(tags, key):
-		for tag in tags:
-			if tag['Key'] == key:
-				return tag['Value']
-		else:
-			raise KeyError
-
-	ec2 = boto3.client('ec2', region_name=region)
-	instances = []
-	ignored_instances = []
-	for reservation in ec2.describe_instances()['Reservations']:
-		for instance in reservation['Instances']:
-			instance_id = instance['InstanceId']
-			try:
-				tags = instance['Tags']
-				value = get_tag_value(tags, 'project')
-				if value == 'my-project':
-					instances.append(instance_id)
-			except KeyError:
-				pass
-			if instance_id not in instances:
-				ignored_instances.append(instance_id)
-
-	if instances:
-		ec2.start_instances(InstanceIds=instances)
-	print 'ignored instances: ' + str(ignored_instances)
-	print 'started your instances: ' + str(instances)
-  ```
-  * StopEC2Instances.py
-  ```
-  import boto3
-# Enter the region your instances are in. Include only the region without specifying Availability Zone; e.g.; 'us-east-1'
-region = 'eu-west-2'
-
-def lambda_handler(event, context):
-
-	def get_tag_value(tags, key):
-		for tag in tags:
-			if tag['Key'] == key:
-				return tag['Value']
-		else:
-			raise KeyError
-
-	ec2 = boto3.client('ec2', region_name=region)
-	instances = []
-	ignored_instances = []
-	for reservation in ec2.describe_instances()['Reservations']:
-		for instance in reservation['Instances']:
-			instance_id = instance['InstanceId']
-			try:
-				tags = instance['Tags']
-				value = get_tag_value(tags, 'project')
-				if value == 'my-project':
-					instances.append(instance_id)
-			except KeyError:
-				pass
-			if instance_id not in instances:
-				ignored_instances.append(instance_id)
-
-	if instances:
-		ec2.stop_instances(InstanceIds=instances)
-	print 'ignored instances: ' + str(ignored_instances)
-	print 'stopped your instances: ' + str(instances)
-  ```
-  To enable these, create two Lambda functions within AWS, pasting the above scripts into the function window and selecting Python 2.7
-  as the script language and giving each a meaningful name (ie: StartEC2, StopEC2).
+The scripts make use of AWS tags which can be put on most resources. The tags are simple key-value pairs. The current scripts make use of a tag with name 'Scheduled' and the value of 'True'.For example, if people are on holiday they may wish to set their 'Scheduled' flag to 'False' so that their resources will not turn on whilst they are away. You can of course change the key-value pair the scripts look for to something suitable for your project.
   
-  Next, go into CloudWatch and create two rules - one for each function. Assign the newly created function to their respective rules
-  and set a schedule for each one (eg: Start rule can be set for 8am, Monday - Friday and Stop rule can be set to run 6pm, Monday -
-  Friday).
+To enable these, create two Lambda functions within AWS. One should have the aws_resource_finders.py and the start_resources.py the other function should have the aws_resource_finders.py and the stop_resources.py. You should modify the examples to enable the resources you need. For example, if you have no RDS resources then there is no point checking for them so you can remove that check. Set the language to Python 3, and you will need to increase the timeout of the function as the default of 3 is not long enough usually. The handlers would be start_resources.lambda_handler and stop_resources.lambda_handler as appropriate. Name the Lambda functions as appropriate e.g. Start-Resources and Stop-Resources.
   
-  In the above scripts, the startup or shutdown directive applies to all EC2 instances which have a tag called 'project' with a
-  corresponding value of 'my-project'. A table called 'instances' is populated with all the EC2 instances which have a tag called 
-  'project' with the 'my-project' value and the directive 'ec2.stop_instances(InstanceIds=instances)' instructs CloudWatch to shut
-  down or start up each instance in the table.
+Next, go into CloudWatch and create two rules - one for each function. Assign the newly created function to their respective rules and set a schedule for each one (eg: Start rule can be set for 8am, Monday - Friday and Stop rule can be set to run 6pm, Monday - Friday). Example cron expressions are:
+  - 0 8 ? * MON-FRI *    8 am every monday-friday
+  - 0 18 ? * MON-FRI *   6 pm every monday-friday
+  
+You are encouraged to extend the project by adding other resources into the aws_resource_finders.py that may be of use.
